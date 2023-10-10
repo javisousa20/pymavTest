@@ -20,7 +20,7 @@ gpsalt=-80
 hdop=0
 
 #Conexion Serial con el autopiloto
-ap_uav = mavutil.mavlink_connection(ifacecomm,baud=57600)
+ap_uav = mavutil.mavlink_connection(ifacecomm,baud=56700)
 ap_uav.wait_heartbeat()
 print("Heartbeat from ap_uav (system %u component %u)" % (ap_uav.target_system, ap_uav.target_component))
 
@@ -31,7 +31,7 @@ gpsmsg = ap_uav.mav.gps_input_send(
     # Flags indicating which fields to ignore (see GPS_INPUT_IGNORE_FLAGS enum).
     # All other fields must be provided.
     8 | 16 | 32,
-    0,  # GPS time (milliseconds from start of GPS week)
+    100,  # GPS time (milliseconds from start of GPS week)
     0,  # GPS week number
     3,  # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
     gpslat,  # Latitude (WGS84), in degrees * 1E7
@@ -47,23 +47,7 @@ gpsmsg = ap_uav.mav.gps_input_send(
     0,  # GPS vertical accuracy in m
     7   # Number of satellites visible.
 )
-
-# Espera y procesa la respuesta del dispositivo
-
-
 try:
-    while True:
-        response_msg = ap_uav.recv_msg()
-        if response_msg and response_msg.get_type() == 'GPS_RAW_INT':
-            # Obtiene los valores de latitud, longitud y altitud del mensaje
-            print("El mensaje es tipo GPS_RAW_INT con contenido:")
-            latitude = response_msg.lat / 1e7
-            longitude = response_msg.lon / 1e7
-            altitude = response_msg.alt / 1000.0
-            print(f"    Latitud: {latitude} grados, enviado: {gpslat/1e7}")
-            print(f"    Longitud: {longitude} grados, enviado: {gpslon/1e7}")
-            print(f"    Altitud: {altitude} metros, enviado: {gpsalt}")
-            break  # Sale del bucle cuando se recibe la respuesta GPS_RAW_INT
     #Llegada de mensajes
     pos = ap_uav.recv_match(type='GLOBAL_POSITION_INT',blocking=True)
     if not pos:
@@ -81,7 +65,7 @@ try:
         #type_mask=0b11011111100
         lat_int=pos.lat
         lon_int=pos.lon
-        alt=60
+        alt=-60
         #alt=msg.alt*0.001 + float(sys.argv[1]) #altura del ap_car(mm) + la entrada(en metros)
         # vx=msg.vx*0.01 #de cm/s a m/s
         # vy=msg.vx*0.01 #de cm/s a m/s
@@ -97,3 +81,5 @@ try:
         pass
 except SerialException:
     print("Comprobe the AP conected to the Ground PC")
+
+ap_uav.close()

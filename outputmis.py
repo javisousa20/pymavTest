@@ -4,65 +4,116 @@
 #   jsousa@catec.aero
 # ======================================================================
 
-from os import stat
-from pymavlink.dialects.v20 import common as mavlink2
-from pymavlink import mavutil
-import sys, time
-from pymavlink.mavextra import mode
-from serial.serialutil import SerialException
+import argparse
 import math
-import os
+from pymavlink import mavutil
 
-#Conexion Serial con el autopiloto
-ap_uav = mavutil.mavlink_connection('/dev/tty0',baud=57600) # Cambiar a 115200, revisar puerto en dmesg
-ap_uav.wait_heartbeat()
-print("Heartbeat from ap_uav (system %u component %u)" % (ap_uav.target_system, ap_uav.target_component))
+ifacecomm='/dev/ttyACM0'
 
-waypoints = []
+class mission_item:
+   def __init__(self, i, current, x,y,z):
+      
+      self.seq = 1
+      self.frame = mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT
+      self.command = mavutil.mavlink.MAV_CMD_NAV_WAYPOINT
+      self.current = current
+      self.auto = 1
+      self.param1 = 1
+      self.param2 = 0.0
+      self.param3 = 2.00
+      self.param4 = math.nan
+      self.param5 = x
+      self.param6 = y
+      self.param7 = z
+      self.mission_type = 0
 
-# Waypoint 1: Latitud, longitud y altitud
-waypoint1 = (37.7749, -122.4194, 100)
-waypoints.append(waypoint1)
+def arm(the_connection):
+   print("-- Arming")
 
-# Waypoint 2: Latitud, longitud y altitud
-waypoint2 = (37.7750, -122.4195, 150)
-waypoints.append(waypoint2)
+   the_connection.mav.command_long_send(the_connection.target_system,the_connection.target_component,
+                                        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 1, 0, 0, 0, 0, 0, 0)
+   ack(the_connection, "COMMAND ACK")
 
-# Itera a través de los waypoints y envíalos al autopiloto
-seq = 0
-for lat, lon, alt in waypoints:
-    # Crea un mensaje MAVLink de tipo MISSION_ITEM
-    msg = ap_uav.mav.mission_item_encode(
-        ap_uav.target_system,  # ID del sistema objetivo
-        ap_uav.target_component,  # ID del componente objetivo
-        seq,  # Secuencia del waypoint
-        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,  # Marco de referencia (global con altitud relativa)
-        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,  # Comando de navegación para waypoints
-        0,  # Máscara de parámetros (ignorar todos los demás parámetros)
-        0, 0,  # Parametros de la misión personalizada
-        int(lat*1e7), int(lon*1e7), int(alt),  # Latitud, longitud y altitud del waypoint
-        0, 0, 0)  # Más parámetros de la misión personalizada
+def takeoff(the_connection):
+   print("-- Taking off")
 
-    # Envía el mensaje MAVLink al autopiloto
-    ap_uav.mav.send(msg)
+   the_connection.mav.command_long_send(the_connection.target_system,the_connection.target_component,
+                                        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, math.nan, 0, 0, 10)
+   ack(the_connection, "COMMAND ACK")
 
-    # Incrementa la secuencia
-    seq += 1
+def upload_mission(the_connection, mission_items):
+   n=len(mission_items)
+   print("-- Sending message out")
 
-# Espera una respuesta ACK del autopiloto
-while True:
-    time.sleep(1)
-    ack_msg = ap_uav.recv_match(type='MISSION_ACK', blocking=True)
-    if ack_msg:
-        if ack_msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED:
-            print("Waypoints aceptados por el autopiloto")
-        else:
-            print("El autopiloto rechazó los waypoints")
-        break
+   the_connection.mav.mission_count_send(the_connection.target_system, the_connection.target_component,n,0)
 
-#while True:
-#    try:
-#        print(ap_uav.recv_match().to_dict())
-#    except:
-#        pass
-#    time.sleep(0.1)
+   ack(the_connection, "MISSION_REQUEST")
+
+   for waypoint in mission_items:
+      print("-- Creating waypoint")
+
+      the_connection.mav.mission_item_send(the_connection.target_system,
+                                           the_connection.target_component,
+                                           waypoint.seq,
+                                           waypoint.frame,
+                                           waypoint.command,
+                                           waypoint.current,
+                                           waypoint.auto,
+                                           waypoint.param1,
+                                           waypoint.param2,
+                                           waypoint.param3,
+                                           waypoint.param4,
+                                           waypoint.param5,
+                                           waypoint.param6,
+                                           waypoint.param7,
+                                           waypoint.mission_type)
+   if waypoint != mission_items[n-1]:
+         ack(the_connection, "MISSION_REQUEST")
+   ack(the_connection, "MISSION_ACK")
+
+def set_return(the_connection):
+   print("-- Set Return To Launch")
+
+   the_connection.mav.command_long_send(the_connection.target_system,the_connection.target_component,
+                                        mavutil.mavlink.MAV_CMD_MISSION_START, 0, 0, 0, 0, 0, 0, 0, 0)
+   ack(the_connection, "COMMAND ACK")
+
+def start_mission(the_connection):
+   print("-- Mission Start")
+
+   the_connection.mav.command_long_send(the_connection.target_system,the_connection.target_component,
+                                        mavutil.mavlink.MAV_CMD_MISSION_START, 0, 0, 0, 0, 0, 0, 0, 0)
+   ack(the_connection, "COMMAND ACK")
+
+def ack(the_connection, keyword):
+   print("-- Message Read" + str(the_connection.recv_match(type=keyword, blocking = True)))
+
+if __name__=="__main__":
+   print("-- Program Started")
+   the_connection = mavutil.mavlink_connection(ifacecomm,57600)
+
+   while(the_connection.target_system == 0):
+      print("-- Checking Heartbeat")
+      the_connection.wait_heartbeat()
+      print("Heartbeat from uav (system %u component %u)" % (the_connection.target_system, the_connection.target_component))
+
+   mission_waypoints = []
+
+   mission_waypoints.append(mission_item(0, 0, 42.121212121212, -122.232323232323, 10))
+   mission_waypoints.append(mission_item(1, 0, 42.232323232323, -122.454545454545, 10))
+   mission_waypoints.append(mission_item(2, 0, 42.787878787878, -122.454545454545, 5))
+
+   upload_mission(the_connection, mission_waypoints)
+
+   # arm(the_connection)
+
+   # takeoff(the_connection)
+   
+   # start_mission(the_connection)
+
+   # for mission_item in mission_waypoints:
+   #    print("-- Message Read " + str(the_connection.recv_match(type='MISSION_ITEM_REACHED', blocking = True)))
+
+   # set_return(the_connection)
+
+
