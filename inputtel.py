@@ -16,7 +16,7 @@ import os
 ifacecomm='/dev/ttyACM0'
 
 #Conexion Serial con el autopiloto
-ap_uav = mavutil.mavlink_connection('/dev/ttyACM0',baud=57600) # Cambiar a 115200, revisar puerto en dmesg
+ap_uav = mavutil.mavlink_connection('/dev/ttyACM0',baud=115200) # Cambiar a 115200, revisar puerto en dmesg
 while(ap_uav.target_system == 0):
     print("-- Checking Heartbeat")
     ap_uav.wait_heartbeat()
